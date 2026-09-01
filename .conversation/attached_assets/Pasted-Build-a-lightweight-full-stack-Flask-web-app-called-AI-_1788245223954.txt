@@ -1,0 +1,76 @@
+Build a lightweight full-stack Flask web app called "AI Privacy & Security Reinforcement Dashboard".
+
+IMPORTANT:
+- Must run within Replit Free tier limits.
+- Keep dependencies and code minimal.
+- Do NOT use Blockchain, Random Forest, TensorFlow, PyTorch, Spark, Docker, Kubernetes, or external paid APIs.
+- Use only Python, Flask, SQLite, Pandas, NumPy, scikit-learn, HTML/CSS/JS.
+- Use Bootstrap and Chart.js through CDN.
+- Generate a small synthetic dataset (max 500 records).
+
+CORE FEATURES:
+
+1. AUTHENTICATION & ACCESS CONTROL
+- Register and login.
+- Store passwords securely using PBKDF2 hashing.
+- Roles: Admin, Analyst, User.
+- Implement simple RBAC.
+- Calculate a trust score based on failed logins, known device, and login behavior.
+- Show Low, Medium, High risk.
+
+2. PRIVACY PROTECTION
+- Mask sensitive data such as email, username, and IP address.
+- Demonstrate differential privacy by adding Laplace noise to numerical statistics.
+- Let users select Low, Medium, or High privacy levels.
+
+3. AI INTRUSION DETECTION
+- Create a small synthetic network traffic dataset.
+- Features: duration, src_bytes, dst_bytes, failed_logins, packet_count, connection_rate.
+- Use Isolation Forest for anomaly detection.
+- Classify traffic as Normal or Suspicious.
+- Generate anomaly score and Low/Medium/High risk level.
+- Keep ML training lightweight and fast.
+
+4. AUDIT LOGGING
+- Do NOT use blockchain.
+- Create tamper-evident logs using SHA-256 hash chaining.
+- Each log contains timestamp, event type, risk score, previous hash, current hash.
+- Add a button to verify log integrity.
+
+5. DASHBOARD
+Show:
+- Total Users
+- Threats Detected
+- High Risk Events
+- Average Trust Score
+- Privacy Status
+
+Add only 2 simple Chart.js charts:
+- Threat Distribution
+- Risk Level Distribution
+
+PAGES:
+- Login
+- Register
+- Dashboard
+- Access Control
+- Privacy Protection
+- Intrusion Detection
+- Audit Logs
+
+PROJECT STRUCTURE:
+app.py
+database.py
+security.py
+ml_model.py
+audit.py
+requirements.txt
+/templates
+/static
+
+Use SQLite and automatically initialize the database.
+
+The app should demonstrate this flow:
+Login → Trust Score → Privacy Protection → Network Analysis → Threat Detection → Audit Log → Dashboard.
+
+Create a fully functional but SIMPLE prototype. Prioritize low resource usage and Replit Free compatibility. Do not over-engineer the project.
