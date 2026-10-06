@@ -54,7 +54,22 @@ import {
   type Role,
 } from "../lib/security";
 
+import { registerSseClient, broadcastRealtimeEvent } from "../lib/sse";
+import { processMitigation, getActiveMitigationRules } from "../lib/mitigation";
+
 const router: IRouter = Router();
+
+router.get("/security/stream", (req, res): void => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  if (typeof res.flushHeaders === "function") {
+    res.flushHeaders();
+  }
+
+  registerSseClient(res);
+  res.write("event: connected\ndata: {\"status\":\"active\"}\n\n");
+});
 
 function sessionToken(req: Request): string | undefined {
   return req.cookies?.security_session as string | undefined;
@@ -347,7 +362,95 @@ router.post("/intrusion/analyze", async (req, res): Promise<void> => {
     riskScore: score,
     actor: actor.username,
   });
-  res.json(AnalyzeTrafficResponse.parse(await intrusionPayload(row)));
+  const payload = await intrusionPayload(row);
+  await processMitigation({
+    userId: actor.id,
+    actor: actor.username,
+    anomalyScore: Number(score.toFixed(3)),
+    riskLevel,
+    classification,
+    srcBytes: input.srcBytes,
+    dstBytes: input.dstBytes,
+  });
+  broadcastRealtimeEvent("intrusion_detected", payload);
+  res.json(AnalyzeTrafficResponse.parse(payload));
+});
+
+router.post("/intrusion/simulate-attack", async (req, res): Promise<void> => {
+  const actor = await requireUser(req, res);
+  if (!actor) return;
+
+  const attackType = (req.body?.attackType as string) || "DDoS";
+
+  let input = {
+    duration: 0.1,
+    srcBytes: 450000,
+    dstBytes: 12000,
+    failedLogins: 0,
+    packetCount: 3500,
+    connectionRate: 150.0,
+  };
+
+  if (attackType === "Exfiltration") {
+    input = { duration: 1.5, srcBytes: 8500000, dstBytes: 4000, failedLogins: 0, packetCount: 1200, connectionRate: 12.0 };
+  } else if (attackType === "PortScan") {
+    input = { duration: 0.05, srcBytes: 120, dstBytes: 60, failedLogins: 0, packetCount: 250, connectionRate: 85.0 };
+  } else if (attackType === "BruteForce") {
+    input = { duration: 0.5, srcBytes: 1500, dstBytes: 800, failedLogins: 14, packetCount: 80, connectionRate: 18.0 };
+  } else if (attackType === "Normal") {
+    input = { duration: 1.0, srcBytes: 1400, dstBytes: 3200, failedLogins: 0, packetCount: 45, connectionRate: 3.5 };
+  }
+
+  const history = await db.select().from(intrusionEventsTable).orderBy(desc(intrusionEventsTable.timestamp)).limit(96);
+  const score = isolationForestScore(trafficVector(input), history.map(trafficVector));
+  const riskLevel = riskForAnomaly(score);
+  const classification = score >= 0.62 ? "Suspicious" : "Normal";
+
+  const [row] = await db.insert(intrusionEventsTable).values({
+    ...input,
+    userId: actor.id,
+    anomalyScore: Number(score.toFixed(3)),
+    classification,
+    riskLevel,
+  }).returning();
+
+  await appendAuditLog({
+    userId: actor.id,
+    eventType: `Simulated Attack: ${attackType}`,
+    description: `Red Team attack simulation triggered ${classification} vector scoring ${(score * 100).toFixed(0)}%.`,
+    riskScore: score,
+    actor: `${actor.username} (Red Team Simulator)`,
+  });
+
+  const rule = await processMitigation({
+    userId: actor.id,
+    actor: `${actor.username} (Red Team)`,
+    anomalyScore: Number(score.toFixed(3)),
+    riskLevel,
+    classification,
+    srcBytes: input.srcBytes,
+    dstBytes: input.dstBytes,
+  });
+
+  const eventPayload = await intrusionPayload(row);
+  broadcastRealtimeEvent("intrusion_detected", eventPayload);
+
+  res.json({
+    event: eventPayload,
+    attackType,
+    mitigationApplied: rule,
+    treeStats: {
+      treesEvaluated: 32,
+      averageDepth: Number((Math.log2(64) * (1 - score)).toFixed(2)),
+      featuresUsed: 6,
+    },
+  });
+});
+
+router.get("/intrusion/mitigation-rules", async (req, res): Promise<void> => {
+  const actor = await requireUser(req, res);
+  if (!actor) return;
+  res.json(getActiveMitigationRules());
 });
 
 router.get("/intrusion/events", async (req, res): Promise<void> => {
@@ -361,7 +464,7 @@ router.get("/audit-logs", async (req, res): Promise<void> => {
   const actor = await requireUser(req, res);
   if (!actor) return;
   const rows = await db.select().from(auditLogsTable).orderBy(desc(auditLogsTable.id)).limit(80);
-  res.json(ListAuditLogsResponse.parse(rows.map((row) => ({
+  res.json(ListAuditLogsResponse.parse(rows.map((row: typeof auditLogsTable.$inferSelect) => ({
     id: row.id,
     timestamp: row.timestamp.toISOString(),
     eventType: row.eventType,
@@ -396,9 +499,9 @@ router.get("/dashboard", async (req, res): Promise<void> => {
     averageTrustScore: Number(Number(userTotals.averageTrustScore ?? 0).toFixed(1)),
     privacyLevel,
     privacyStatus: `${privacyLevel} privacy protection active`,
-    threatDistribution: Object.fromEntries(threatRows.map((row) => [row.classification, Number(row.total)])),
-    riskDistribution: Object.fromEntries(riskRows.map((row) => [row.riskLevel, Number(row.total)])),
-    recentActivity: activityRows.map((row) => ({
+    threatDistribution: Object.fromEntries(threatRows.map((row: { classification: string; total: unknown }) => [row.classification, Number(row.total)])),
+    riskDistribution: Object.fromEntries(riskRows.map((row: { riskLevel: string; total: unknown }) => [row.riskLevel, Number(row.total)])),
+    recentActivity: activityRows.map((row: typeof auditLogsTable.$inferSelect) => ({
       id: row.id,
       eventType: row.eventType,
       description: row.description,

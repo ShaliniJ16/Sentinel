@@ -10,6 +10,8 @@ import {
   type SecurityUser,
 } from "@workspace/db";
 
+import { broadcastRealtimeEvent } from "./sse";
+
 export type Role = "Admin" | "Analyst" | "User";
 export type RiskLevel = "Low" | "Medium" | "High";
 export type PrivacyLevel = "Low" | "Medium" | "High";
@@ -166,6 +168,16 @@ export async function appendAuditLog(input: {
       actor: input.actor,
     })
     .returning();
+  broadcastRealtimeEvent("audit_log", {
+    id: row.id,
+    timestamp: row.timestamp.toISOString(),
+    eventType: row.eventType,
+    description: row.description,
+    riskScore: row.riskScore,
+    previousHash: row.previousHash,
+    currentHash: row.currentHash,
+    actor: row.actor,
+  });
   return row;
 }
 
